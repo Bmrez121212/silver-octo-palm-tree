@@ -2683,28 +2683,38 @@ class VerifyButtonView(discord.ui.View):
 
     @discord.ui.button(label="Verify Myself", style=discord.ButtonStyle.success, custom_id="verify_start_btn", emoji="🛡️")
     async def verify_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # 1. Check if user is already verified (by ID or Name)
-        v_id = get_verified_role(interaction.guild.id)
-        is_verified = any(r.id == v_id or r.name.lower() == "verified" for r in interaction.user.roles)
-        if is_verified:
-            await interaction.response.send_message("✅ You are already verified and have full access to the server!", ephemeral=True)
-            return
+        try:
+            # 1. Defer response as we'll be doing DB/Image work
+            await interaction.response.defer(ephemeral=True)
 
-        # 2. Generate captcha
-        code, image_bytes = generate_captcha()
-        active_captchas[interaction.user.id] = code
-        db_manager.save_captcha(interaction.user.id, code)
-        
-        file = discord.File(io.BytesIO(image_bytes), filename="captcha.png")
-        
-        # 3. Send ephemeral message
-        await interaction.response.send_message(
-            "Please solve this captcha to verify. Once you see the code, click **'Enter Code'** below.\n"
-            "*Wait a moment for the image to load.*",
-            file=file,
-            view=CaptchaEntryView(),
-            ephemeral=True
-        )
+            # 2. Check if user is already verified (by ID or Name)
+            v_id = get_verified_role(interaction.guild.id)
+            is_verified = any(r.id == v_id or r.name.lower() == "verified" for r in interaction.user.roles)
+            if is_verified:
+                await interaction.followup.send("✅ You are already verified and have full access to the server!", ephemeral=True)
+                return
+
+            # 3. Generate captcha
+            code, image_bytes = generate_captcha()
+            active_captchas[interaction.user.id] = code
+            db_manager.save_captcha(interaction.user.id, code)
+            
+            file = discord.File(io.BytesIO(image_bytes), filename="captcha.png")
+            
+            # 4. Send followup message
+            await interaction.followup.send(
+                "Please solve this captcha to verify. Once you see the code, click **'Enter Code'** below.\n"
+                "*Wait a moment for the image to load.*",
+                file=file,
+                view=CaptchaEntryView(),
+                ephemeral=True
+            )
+        except Exception as e:
+            logger.error(f"Error in verification button: {e}")
+            if interaction.response.is_done():
+                await interaction.followup.send(f"❌ **System Error:** {str(e)}\nPlease try again or contact a moderator.", ephemeral=True)
+            else:
+                await interaction.response.send_message(f"❌ **System Error:** {str(e)}", ephemeral=True)
 
 class CaptchaEntryView(discord.ui.View):
     def __init__(self):

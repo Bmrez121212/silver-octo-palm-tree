@@ -171,8 +171,17 @@ class DatabaseManager:
             create_table('''
                 CREATE TABLE IF NOT EXISTS user_portfolios (
                     user_id BIGINT PRIMARY KEY,
-                    portfolio_url TEXT,
+                    portfolio_data TEXT, -- Changed from portfolio_url to match code
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+
+            # Table for Active Captchas (Missing in previous version)
+            create_table('''
+                CREATE TABLE IF NOT EXISTS active_captchas (
+                    user_id BIGINT PRIMARY KEY,
+                    code TEXT,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
 
