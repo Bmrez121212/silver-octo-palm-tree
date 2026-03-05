@@ -63,6 +63,8 @@ class DatabaseManager:
                 os.makedirs(db_dir, exist_ok=True)
             logger.info(f"💾 Database: Using SQLite at {self.db_path}")
             
+        self._guild_settings_cache = {}
+        self._user_memory_cache = {}
         self.init_db()
 
     def get_cursor(self, conn):
@@ -280,17 +282,22 @@ class DatabaseManager:
 
     # --- User Memory ---
     def get_user_memory(self, user_id):
+        if int(user_id) in self._user_memory_cache:
+            return self._user_memory_cache[int(user_id)]
+            
         p = self.get_placeholder()
         try:
             with self.get_connection() as conn:
                 with self.get_cursor(conn) as cursor:
                     cursor.execute(
                         f'SELECT profile_summary, vibe, interaction_count FROM user_memory WHERE user_id = {p}',
-                        (user_id,)
+                        (int(user_id),)
                     )
                     row = cursor.fetchone()
                     if row:
-                        return {"profile_summary": row[0], "vibe": row[1], "interaction_count": row[2]}
+                        res = {"profile_summary": row[0], "vibe": row[1], "interaction_count": row[2]}
+                        self._user_memory_cache[int(user_id)] = res
+                        return res
                     return None
         except Exception as e:
             logger.error(f"Error getting user memory from DB: {e}")
@@ -299,9 +306,13 @@ class DatabaseManager:
     def update_user_memory(self, user_id, username, profile_summary=None, vibe=None, notes=None):
         p = self.get_placeholder()
         try:
+            # Clear cache on update
+            if int(user_id) in self._user_memory_cache:
+                del self._user_memory_cache[int(user_id)]
+                
             with self.get_connection() as conn:
                 with self.get_cursor(conn) as cursor:
-                    cursor.execute(f'SELECT interaction_count FROM user_memory WHERE user_id = {p}', (user_id,))
+                    cursor.execute(f'SELECT interaction_count FROM user_memory WHERE user_id = {p}', (int(user_id),))
                     row = cursor.fetchone()
                     
                     if row:
@@ -669,6 +680,9 @@ class DatabaseManager:
                     # Update setting
                     settings[key] = value
                     
+                    # Update cache
+                    self._guild_settings_cache[int(guild_id)] = settings
+                    
                     # Save back
                     if row:
                         cursor.execute(f'UPDATE guild_settings SET settings = {p} WHERE guild_id = {p}', (json.dumps(settings), int(guild_id)))
@@ -679,6 +693,9 @@ class DatabaseManager:
             logger.error(f"Error saving guild setting: {e}")
 
     def get_guild_setting(self, guild_id, key, default=None):
+        if int(guild_id) in self._guild_settings_cache:
+            return self._guild_settings_cache[int(guild_id)].get(key, default)
+            
         p = self.get_placeholder()
         try:
             with self.get_connection() as conn:
@@ -687,6 +704,7 @@ class DatabaseManager:
                     row = cursor.fetchone()
                     if row:
                         settings = json.loads(row[0])
+                        self._guild_settings_cache[int(guild_id)] = settings
                         return settings.get(key, default)
                     return default
         except Exception as e:

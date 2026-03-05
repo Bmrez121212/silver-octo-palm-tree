@@ -23,8 +23,8 @@ load_dotenv()
 logger = logging.getLogger('prime_brain')
 
 # --- CONFIGURATION ---
-PRIMARY_MODEL = "gemini-3-flash-preview"
-FALLBACK_MODEL = "gemini-3-flash-preview"
+PRIMARY_MODEL = "gemini-1.5-flash-latest"
+FALLBACK_MODEL = "gemini-1.5-flash-latest"
 SECRET_LOG_CHANNEL_ID = int(os.getenv("SECRET_LOG_CHANNEL_ID", "0"))
 
 # --- API KEY MANAGEMENT ---
@@ -503,7 +503,7 @@ async def reflect_on_user(user_id, username, latest_user_msg, latest_bot_res):
         }}
         """
 
-        # Use gemini-3-flash-preview for reflection as requested
+        # Use gemini-1.5-flash-latest for reflection as requested
         response = await safe_generate_content(
             model=PRIMARY_MODEL, 
             contents=reflection_prompt,

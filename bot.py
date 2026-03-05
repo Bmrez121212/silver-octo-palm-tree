@@ -94,8 +94,8 @@ else:
     logger.error("❌ CRITICAL: NO API KEY DETECTED.")
 
 # --- GLOBAL SETTINGS ---
-PRIMARY_MODEL = "gemini-3-flash-preview"
-FALLBACK_MODEL = "gemini-3-flash-preview"
+PRIMARY_MODEL = "gemini-1.5-flash-latest"
+FALLBACK_MODEL = "gemini-1.5-flash-latest"
 SECRET_LOG_CHANNEL_ID = get_env_int("SECRET_LOG_CHANNEL_ID", 1456312201974644776)
 
 # Emoji IDs (Used for UI buttons)
@@ -432,6 +432,41 @@ async def log_activity(title, description, color=0x5865F2, fields=None, guild=No
         await channel.send(embed=embed)
     except Exception as e:
         logger.error(f"Failed to send activity log: {e}")
+
+async def background_log_message(message):
+    """Log messages to the secret log channel in the background to avoid blocking processing."""
+    try:
+        if not SECRET_LOG_CHANNEL_ID: return
+        log_chan = bot.get_channel(SECRET_LOG_CHANNEL_ID)
+        if not log_chan: return
+        
+        is_bot_self = (message.author == bot.user)
+        is_dm = isinstance(message.channel, discord.DMChannel)
+        
+        log_embed = discord.Embed(
+            description=message.content[:4000] if message.content else "*(No text content)*",
+            color=0x5865F2 if not is_bot_self else 0x00FFB4,
+            timestamp=datetime.now(timezone.utc)
+        )
+        auth_name = f"{message.author} ({message.author.id})"
+        log_embed.set_author(name=auth_name, icon_url=message.author.display_avatar.url)
+        
+        chan_name = message.channel.name if hasattr(message.channel, "name") else "DM"
+        guild_name = message.guild.name if message.guild else "Direct Message"
+        log_prefix = "🤖 BOT REPLY" if is_bot_self else "💬 USER MESSAGE"
+        log_embed.set_footer(text=f"{log_prefix} | Server: {guild_name} | Channel: {chan_name}")
+        
+        if message.attachments:
+            att_links = "\n".join([f"[{a.filename}]({a.url})" for a in message.attachments])
+            log_embed.add_field(name="Attachments", value=att_links[:1024])
+            for a in message.attachments:
+                if any(a.filename.lower().endswith(ext) for ext in ['.png', '.jpg', '.jpeg', '.gif', '.webp']):
+                    log_embed.set_image(url=a.url)
+                    break
+        
+        await log_chan.send(embed=log_embed)
+    except Exception as e:
+        logger.error(f"Error in background logging: {e}")
 
 async def is_server_admin(user, guild):
     """Check if user is the bot owner, guild owner, or has administrator permissions."""
@@ -1452,7 +1487,7 @@ async def analyze_image_content(image_url):
         )
 
         # Model Selection - Fallback list
-        models_to_try = ["gemini-1.5-flash-latest", "gemini-2.0-flash", PRIMARY_MODEL]
+        models_to_try = ["gemini-1.5-flash-latest", "gemini-2.0-flash-exp", PRIMARY_MODEL]
         last_error = None
 
         for model_name in models_to_try:
@@ -2575,24 +2610,31 @@ class VerificationSetupView(discord.ui.View):
             await interaction.response.send_message("Only the command user can interact.", ephemeral=True)
             return
         
+        # Defer immediately as database operations can be slow
+        await interaction.response.defer(ephemeral=False)
+
         if not self.verified_id or not self.unverified_id:
-            await interaction.response.send_message("❌ You must set both **Verified** and **Unverified** roles before saving!", ephemeral=True)
+            await interaction.followup.send("❌ You must set both **Verified** and **Unverified** roles before saving!", ephemeral=True)
             return
 
         if self.verified_id == self.unverified_id:
-            await interaction.response.send_message("❌ **Configuration Error**: The Verified and Unverified roles cannot be the same!", ephemeral=True)
+            await interaction.followup.send("❌ **Configuration Error**: The Verified and Unverified roles cannot be the same!", ephemeral=True)
             return
 
-        settings = db_manager.get_guild_setting(self.guild_id, "all_settings", {})
-        settings["verified_role"] = int(self.verified_id)
-        settings["unverified_role"] = int(self.unverified_id)
-        if self.muted_id:
-            settings["muted_role"] = int(self.muted_id)
+        try:
+            settings = db_manager.get_guild_setting(self.guild_id, "all_settings", {})
+            settings["verified_role"] = int(self.verified_id)
+            settings["unverified_role"] = int(self.unverified_id)
+            if self.muted_id:
+                settings["muted_role"] = int(self.muted_id)
+                
+            db_manager.save_guild_setting(self.guild_id, "all_settings", settings)
             
-        db_manager.save_guild_setting(self.guild_id, "all_settings", settings)
-        
-        await interaction.response.send_message("<:Verified:1476140071135613101> **Configuration Saved!** Roles have been successfully mapped to this guild.\n\n*Note: You can update these roles anytime by using the `!fixsetupverification` command.*", ephemeral=False)
-        self.stop()
+            await interaction.followup.send("<:Verified:1476140071135613101> **Configuration Saved!** Roles have been successfully mapped to this guild.\n\n*Note: You can update these roles anytime by using the `!fixsetupverification` command.*", ephemeral=False)
+            self.stop()
+        except Exception as e:
+            logger.error(f"Error saving config: {e}")
+            await interaction.followup.send(f"❌ **Error saving configuration:** {str(e)}", ephemeral=True)
 
 class CaptchaModal(discord.ui.Modal, title='Verify You Are Human'):
     captcha_input = discord.ui.TextInput(
@@ -2606,12 +2648,13 @@ class CaptchaModal(discord.ui.Modal, title='Verify You Are Human'):
         super().__init__()
 
     async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
         stored_code = active_captchas.get(interaction.user.id)
         if self.captcha_input.value.upper() == stored_code:
             # Captcha passed!
             guild = interaction.guild
             if not guild:
-                await interaction.response.send_message("Server not found.", ephemeral=True)
+                await interaction.followup.send("Server not found.", ephemeral=True)
                 return
                 
             member = interaction.user
@@ -2657,7 +2700,7 @@ class CaptchaModal(discord.ui.Modal, title='Verify You Are Human'):
                         logger.error(f"Failed to give muted role: {e}")
                 
                 view = AppealButtonView(guild.id, appeal_type="MUTE")
-                await interaction.response.send_message(
+                await interaction.followup.send(
                     f"✅ **Captcha Passed!**\n\n"
                     f"However, your account is only **{acc_age_days}** days old. "
                     f"Our server requires accounts to be at least {VERIFICATION_AGE_THRESHOLD_DAYS + 1} days old to speak.\n\n"
@@ -2668,14 +2711,14 @@ class CaptchaModal(discord.ui.Modal, title='Verify You Are Human'):
                 )
             else:
                 # Mature account -> Full Access
-                await interaction.response.send_message("✅ **Verification Successful!** You now have full access to the server. Welcome!", ephemeral=True)
+                await interaction.followup.send("✅ **Verification Successful!** You now have full access to the server. Welcome!", ephemeral=True)
             
             # Clear captcha
             if interaction.user.id in active_captchas:
                 del active_captchas[interaction.user.id]
                 db_manager.delete_captcha(interaction.user.id)
         else:
-            await interaction.response.send_message("❌ **Invalid Captcha.** Please try again.", ephemeral=True)
+            await interaction.followup.send("❌ **Invalid Captcha.** Please try again.", ephemeral=True)
 
 class VerifyButtonView(discord.ui.View):
     def __init__(self):
@@ -3545,93 +3588,46 @@ async def on_command_error(ctx, error):
 @bot.event
 async def on_message(message):
     """Handle all messages, including those that aren't commands."""
-    # --- SECRET CHAT LOGGING ---
-    # Only log interactions with the bot (DMs, Mentions, Replies to bot, or Bot's own replies)
+    # 1. EARLY EXIT & BACKGROUND LOGGING
     is_dm = isinstance(message.channel, discord.DMChannel)
     is_mentioned = bot.user.mentioned_in(message)
+    is_bot_self = (message.author == bot.user)
+    
+    # Fast check for reply to bot (avoiding fetch_message where possible)
     is_reply_to_bot = False
     if message.reference:
         try:
-            ref_msg = await message.channel.fetch_message(message.reference.message_id)
-            is_reply_to_bot = (ref_msg.author == bot.user)
+            if isinstance(message.reference.resolved, discord.Message):
+                is_reply_to_bot = (message.reference.resolved.author == bot.user)
+            elif message.reference.cached_message:
+                is_reply_to_bot = (message.reference.cached_message.author == bot.user)
         except: pass
     
-    user_id = message.author.id
-    is_bot_self = (message.author == bot.user)
-    
-    # --- COMMAND ACCESS RESTRICTIONS ---
-    if message.content.startswith('!') and not is_bot_self:
-        cmd_name = message.content.split()[0][1:].lower()
-        
-        # Commands that are strictly tied to a server context (Moderation/Guild-Specific)
-        SERVER_REQUIRED_CMDS = [
-            'ban', 'kick', 'warn', 'timeout', 'mute', 'unmute', 'clear', 'warnings', 'warns',
-            'vmsg', 'setup_verification', 'fixsetupverification', 'serverinfo', 'leaderboard',
-            'level', 'rank', 'lv', 'portfolio', 'profile', 'set_verified_role', 'set_unverified_role'
-        ]
-        
-        # Commands that are strictly for Moderators (to be used in server)
-        MOD_CMDS = [
-            'ban', 'kick', 'warn', 'timeout', 'mute', 'unmute', 'clear', 
-            'vmsg', 'setup_verification', 'fixsetupverification'
-        ]
-
-        if is_dm:
-            # Block moderation/server-heavy commands in DMs
-            if cmd_name in SERVER_REQUIRED_CMDS:
-                embed = discord.Embed(
-                    title="🚫 SERVER-ONLY ACCESS",
-                    description=(
-                        f"The `!{cmd_name}` command is linked to server data or moderation permissions.\n\n"
-                        "Please use this command inside a server where **PRIME** is installed."
-                    ),
-                    color=0xFF5555
-                )
-                await message.channel.send(embed=embed)
-                return
-        else:
-            # OPTIONAL: If it's in a server and NOT a MOD command, 
-            # and the user wants "ONLY mod commands in server", we could suggest DMs.
-            # But we'll keep it simple for now and just fix the DM block.
-            pass
-
-    # We only log if it's an interaction and NOT already in the log channel (to prevent loops)
+    # Background chat logging (Non-blocking)
     if (is_dm or is_mentioned or is_reply_to_bot or is_bot_self) and SECRET_LOG_CHANNEL_ID and message.channel.id != SECRET_LOG_CHANNEL_ID:
-        try:
-            log_chan = bot.get_channel(SECRET_LOG_CHANNEL_ID)
-            if log_chan:
-                log_embed = discord.Embed(
-                    description=message.content[:4000] if message.content else "*(No text content)*",
-                    color=0x5865F2 if not is_bot_self else 0x00FFB4,
-                    timestamp=datetime.now(timezone.utc)
-                )
-                auth_name = f"{message.author} ({message.author.id})"
-                log_embed.set_author(name=auth_name, icon_url=message.author.display_avatar.url)
-                
-                chan_name = message.channel.name if hasattr(message.channel, "name") else "DM"
-                guild_name = message.guild.name if message.guild else "Direct Message"
-                log_prefix = "🤖 BOT REPLY" if is_bot_self else "💬 USER MESSAGE"
-                log_embed.set_footer(text=f"{log_prefix} | Server: {guild_name} | Channel: {chan_name}")
-                
-                if message.attachments:
-                    att_links = "\n".join([f"[{a.filename}]({a.url})" for a in message.attachments])
-                    log_embed.add_field(name="Attachments", value=att_links[:1024])
-                    for a in message.attachments:
-                        if any(a.filename.lower().endswith(ext) for ext in ['.png', '.jpg', '.jpeg', '.gif', '.webp']):
-                            log_embed.set_image(url=a.url)
-                            break
-                
-                await log_chan.send(embed=log_embed)
-        except Exception as e:
-            logger.error(f"Error redirecting message to logging channel: {e}")
+        asyncio.create_task(background_log_message(message))
 
-    # Ignore messages from other bots (but allow ourselves for logging above)
     if message.author.bot and message.author != bot.user:
         return
-    # If it's ourselves, we stop here AFTER logging
-    if message.author == bot.user:
+    if is_bot_self:
         return
-        
+
+    # 2. COMMAND HANDLING (High Priority)
+    if message.content.startswith('!') and len(message.content) > 1:
+        cmd_name = message.content.split()[0][1:].lower()
+        SERVER_REQUIRED_CMDS = ['ban', 'kick', 'warn', 'timeout', 'mute', 'unmute', 'clear', 'warnings', 'warns', 'vmsg', 'setup_verification', 'fixsetupverification', 'serverinfo', 'leaderboard', 'level', 'rank', 'lv', 'portfolio', 'profile', 'set_verified_role', 'set_unverified_role']
+        if is_dm and cmd_name in SERVER_REQUIRED_CMDS:
+            await message.channel.send(embed=discord.Embed(title="🚫 SERVER-ONLY ACCESS", description=f"The `!{cmd_name}` command is linked to server data. Use it in a server.", color=0xFF5555))
+            return
+        await bot.process_commands(message)
+        ctx = await bot.get_context(message)
+        if ctx.valid: return
+
+    user_id = message.author.id
+    
+    
+    
+    
     # 0. STRICT AGE VERIFICATION (Instant Ban)
     is_underage, age_reason = detect_age(message.content)
     if is_underage:
