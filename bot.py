@@ -3832,15 +3832,9 @@ async def on_message(message):
                 del user_states[user_id]
             return
     
-    # Ignore messages that are replies to other users (not the bot)
-    if message.reference:
-        try:
-            referenced_msg = await message.channel.fetch_message(message.reference.message_id)
-            # If the reply is to someone other than the bot, ignore it
-            if referenced_msg.author != bot.user:
-                return
-        except:
-            pass  # If we can't fetch the message, continue normally
+    # If the message is a reply, we already determined in Step 1 if it's to the bot
+    if message.reference and not is_reply_to_bot:
+        return
 
     # Check for profanity and moderate (delete + warn + mute 24h)
     if await moderate_profanity(message):
@@ -3883,22 +3877,6 @@ async def on_message(message):
     # if await handle_automatic_motivation(message):
     #     return
     
-    # Process commands first and stop if it's a command
-    await bot.process_commands(message)
-    ctx = await bot.get_context(message)
-    if ctx.valid:
-        return
-    
-    # Check if bot was mentioned or if this is a DM
-    is_dm = isinstance(message.channel, discord.DMChannel)
-    is_mentioned = bot.user.mentioned_in(message)
-    is_reply_to_bot = False
-    if message.reference:
-        try:
-            referenced_msg = await message.channel.fetch_message(message.reference.message_id)
-            is_reply_to_bot = referenced_msg.author == bot.user
-        except:
-            pass
     
     # Only respond if mentioned, in DM, or replying to bot
     if not is_dm and not is_mentioned and not is_reply_to_bot:
