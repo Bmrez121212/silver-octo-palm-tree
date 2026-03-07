@@ -94,8 +94,8 @@ else:
     logger.error("❌ CRITICAL: NO API KEY DETECTED.")
 
 # --- GLOBAL SETTINGS ---
-PRIMARY_MODEL = "gemini-1.5-flash-latest"
-FALLBACK_MODEL = "gemini-1.5-flash-latest"
+PRIMARY_MODEL = "gemini-3-flash-preview"
+FALLBACK_MODEL = "gemini-3-flash-preview"
 SECRET_LOG_CHANNEL_ID = get_env_int("SECRET_LOG_CHANNEL_ID", 1456312201974644776)
 
 # Emoji IDs (Used for UI buttons)
@@ -1493,7 +1493,7 @@ async def analyze_image_content(image_url):
         )
 
         # Model Selection - Fallback list
-        models_to_try = ["gemini-1.5-flash-latest", "gemini-2.0-flash-exp", PRIMARY_MODEL]
+        models_to_try = [PRIMARY_MODEL, "gemini-2.0-flash-exp", "gemini-1.5-flash-latest"]
         last_error = None
 
         for model_name in models_to_try:
@@ -1557,7 +1557,7 @@ async def check_video_safety(video_bytes, filename):
             "Analyze this video strictly for moderation. Check for NSFW, nudity, sex, gore, extreme violence, or scams. "
             "Reply with ONLY JSON format: {\"is_bad\": true/false, \"severity\": \"SEVERE\" or \"MEDIUM\", \"reason\": \"...\"}"
         )
-        models_to_try = ["gemini-1.5-flash-latest", "gemini-2.0-flash-latest", PRIMARY_MODEL]
+        models_to_try = [PRIMARY_MODEL, "gemini-2.0-flash-latest", "gemini-1.5-flash-latest"]
         last_error = None
 
         for model_name in models_to_try:
@@ -3673,7 +3673,7 @@ async def on_message(message):
                 # Now provide the BRIEF tutorial response
                 prompt = state['original_question']
                 async with message.channel.typing():
-                    response = await get_gemini_response(prompt, user_id, username=message.author.name, is_tutorial=True, software=software, brief=True, model="gemini-1.5-flash", guild_id=message.guild.id if message.guild else None)
+                    response = await get_gemini_response(prompt, user_id, username=message.author.name, is_tutorial=True, software=software, brief=True, model=PRIMARY_MODEL, guild_id=message.guild.id if message.guild else None)
                 logger.info(f"Generated brief response (length: {len(response)})")
                 
                 if response and not response.strip().endswith('?'):

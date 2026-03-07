@@ -23,8 +23,8 @@ load_dotenv()
 logger = logging.getLogger('prime_brain')
 
 # --- CONFIGURATION ---
-PRIMARY_MODEL = "gemini-1.5-flash-latest"
-FALLBACK_MODEL = "gemini-1.5-flash-latest"
+PRIMARY_MODEL = "gemini-3-flash-preview"
+FALLBACK_MODEL = "gemini-3-flash-preview"
 SECRET_LOG_CHANNEL_ID = int(os.getenv("SECRET_LOG_CHANNEL_ID", "0"))
 
 # --- API KEY MANAGEMENT ---
@@ -51,7 +51,7 @@ else:
     gemini_client = None
 
 if GROQ_API_KEY:
-    logger.info(f"✅ BRAIN: Groq API Key Detected. Chatting will use {GROQ_MODEL}.")
+    logger.info(f"✅ BRAIN: Groq API Key Detected ({GROQ_API_KEY[:6]}...). Chatting will use {GROQ_MODEL}.")
 else:
     logger.warning("⚠️ BRAIN: No Groq API Key found. Falling back to Gemini for all tasks.")
 
@@ -125,6 +125,21 @@ async def safe_generate_content(model, contents, config=None):
             if rotate_gemini_key(): continue
             break
         except Exception as e:
+            # If the custom model name fails (404/etc), try a known valid one
+            if "not found" in str(e).lower() or "not_found" in str(e).lower():
+                logger.warning(f"⚠️ Model {model} not found. Falling back to gemini-1.5-flash.")
+                try:
+                    return await asyncio.wait_for(
+                        asyncio.to_thread(
+                            gemini_client.models.generate_content,
+                            model="gemini-1.5-flash",
+                            contents=contents,
+                            config=config
+                        ),
+                        timeout=30.0
+                    )
+                except: pass
+            
             last_err = e
             if rotate_gemini_key():
                 continue
@@ -321,10 +336,10 @@ async def get_gemini_response(prompt, user_id, username=None, image_bytes=None, 
             return result_text
         
         # --- ROUTING LOGIC: Groq vs Gemini ---
-        # Groq handles general chat and tutorials (fast, high rate limits).
-        # Gemini handles multimodal (vision), specialized thinking, or specific model overrides.
         is_vision = image_bytes is not None
-        is_override = model is not None or mode is not None or use_thought
+        # Allow Groq if model is None OR if it's one of the standard Flash models he wants to bypass
+        is_standard_model = model is None or model in [PRIMARY_MODEL, FALLBACK_MODEL, "gemini-1.5-flash", "gemini-1.5-flash-latest"]
+        is_override = (not is_standard_model) or mode is not None or use_thought
         
         history = db_manager.get_history(user_id, limit=12)
         
