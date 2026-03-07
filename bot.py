@@ -938,7 +938,7 @@ async def moderate_topic_and_vibe(message):
         if message.author.bot or isinstance(message.channel, discord.DMChannel):
             return False
             
-        if is_server_admin(message.author, message.guild):
+        if await is_server_admin(message.author, message.guild):
             return False
 
         chan_id = message.channel.id
@@ -1042,7 +1042,7 @@ async def check_and_moderate_spam(message):
     """Check if message is spam and handle moderation."""
     try:
         # Don't moderate Admins/Owners, Bot, or DMs
-        if message.author == bot.user or is_server_admin(message.author, message.guild):
+        if message.author == bot.user or await is_server_admin(message.author, message.guild):
             return
         if isinstance(message.channel, discord.DMChannel):
             return
@@ -1593,7 +1593,7 @@ async def moderate_media(message):
         if message.author == bot.user:
             return False
         
-        if is_server_admin(message.author, message.guild):
+        if await is_server_admin(message.author, message.guild):
             return False
 
         if isinstance(message.channel, discord.DMChannel):
@@ -5734,7 +5734,7 @@ async def file_command_handler(message):
 async def ban_command(ctx, member: discord.Member = None):
     """Ban a user from the server - Server admin/inviter can use this."""
     # Check if user is server admin (inviter, owner, or has admin perms)
-    if not is_server_admin(ctx.author, ctx.guild):
+    if not await is_server_admin(ctx.author, ctx.guild):
         admin_name = get_server_admin_name(ctx.guild)
         await ctx.send(f"{ctx.author.mention}, only **{admin_name}** (the person who added me) or server admins can use this command.")
         return
@@ -5756,8 +5756,8 @@ async def ban_command(ctx, member: discord.Member = None):
             return
         
         # Don't allow banning BMR or the server admin
-        if 'bmr' in member.name.lower() or is_server_admin(member, ctx.guild):
-            await ctx.send("❌ I can't ban this user!")
+        if 'bmr' in member.name.lower() or await is_server_admin(member, ctx.guild):
+            await ctx.send("🚫 I can't ban this user!")
             return
         
         # Send DM to user before banning
@@ -5799,7 +5799,7 @@ async def ban_command(ctx, member: discord.Member = None):
 async def timeout_command(ctx, member: discord.Member = None, duration: str = None):
     """Timeout a user for a specified duration - Server admin/inviter can use this."""
     # Check if user is server admin (inviter, owner, or has admin perms)
-    if not is_server_admin(ctx.author, ctx.guild):
+    if not await is_server_admin(ctx.author, ctx.guild):
         admin_name = get_server_admin_name(ctx.guild)
         await ctx.send(f"{ctx.author.mention}, only **{admin_name}** (the person who added me) or server admins can use this command.")
         return
@@ -5845,8 +5845,8 @@ async def timeout_command(ctx, member: discord.Member = None, duration: str = No
             return
         
         # Don't allow timing out BMR or the server admin
-        if 'bmr' in member.name.lower() or is_server_admin(member, ctx.guild):
-            await ctx.send("❌ I can't timeout this user!")
+        if 'bmr' in member.name.lower() or await is_server_admin(member, ctx.guild):
+            await ctx.send("🚫 I can't timeout this user!")
             return
         
         # Send DM to user before timeout
@@ -5900,7 +5900,7 @@ async def mute_command(ctx, member: discord.Member = None, duration: str = None)
 async def unmute_command(ctx, member: discord.Member = None):
     """Remove timeout from a user - Server admin/inviter can use this."""
     # Check if user is server admin (inviter, owner, or has admin perms)
-    if not is_server_admin(ctx.author, ctx.guild):
+    if not await is_server_admin(ctx.author, ctx.guild):
         admin_name = get_server_admin_name(ctx.guild)
         await ctx.send(f"{ctx.author.mention}, only **{admin_name}** (the person who added me) or server admins can use this command.")
         return
@@ -6689,8 +6689,8 @@ async def aesthetic_overlay_command(ctx, aesthetic: str = None):
 @bot.command(name="setup_updates")
 async def setup_updates(ctx, channel: discord.TextChannel = None):
     """Set the channel for bot updates. Usage: !setup_updates #channel"""
-    if not is_server_admin(ctx.author, ctx.guild):
-        await ctx.reply("🚫 Only server admins can configure bot updates.")
+    if not await is_server_admin(ctx.author, ctx.guild):
+        await ctx.reply("💬 Only server admins can configure bot updates.")
         return
         
     if not channel:
@@ -6704,7 +6704,7 @@ async def setup_updates(ctx, channel: discord.TextChannel = None):
 @bot.command(name="appeal_link")
 async def appeal_link(ctx, member: discord.Member = None):
     """Send an appeal button to a member. Usage: !appeal_link @user"""
-    if not is_server_admin(ctx.author, ctx.guild):
+    if not await is_server_admin(ctx.author, ctx.guild):
         return
         
     if not member:
