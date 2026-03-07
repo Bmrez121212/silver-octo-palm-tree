@@ -4508,7 +4508,6 @@ async def on_message(message):
                 }
             )
             
-            db_manager.update_user_memory(message.author.id, message.author.name) # Increments count in DB
 
         except Exception as e:
             logger.error(f'Error in chat response: {str(e)}')
@@ -4610,9 +4609,6 @@ async def level_command(ctx, member: discord.Member = None):
     next_level_xp = 100 * (level + 1) ** 2
     xp_to_next = next_level_xp - xp
     
-    # Fetch Aura from memory
-    user_memory = db_manager.get_user_memory(user_id)
-    aura_vibe = user_memory.get('vibe', 'Neutral') if user_memory else 'Neutral'
     
     # Aesthetic Reveal - Premium Card Design
     embed = discord.Embed(
@@ -4638,8 +4634,6 @@ async def level_command(ctx, member: discord.Member = None):
         inline=False
     )
     
-    # Vibe/Aura Tag
-    embed.add_field(name="Aura / Vibe", value=f"✨ `{aura_vibe.upper()}`", inline=False)
 
     if member.display_avatar:
         embed.set_thumbnail(url=member.display_avatar.url)
@@ -6194,53 +6188,6 @@ async def portfolio_add(ctx, link: str = None):
     
     await ctx.send(f"✅ Portfolio link updated to: <{link}>\nRun `!profile` to see your updated card!")
 
-@bot.hybrid_command(name="brain", aliases=["memory", "mind"])
-async def brain_command(ctx, member: discord.Member = None):
-    """View the bot's stored knowledge about a user."""
-    member = member or ctx.author
-    
-    # Check if user has memory
-    user_mem = db_manager.get_user_memory(member.id)
-    brain_items = db_manager.get_brain(member.id, limit=15)
-    
-    embed = discord.Embed(
-        title=f"🧠 SECOND BRAIN | {member.display_name}",
-        description=(
-            f"Here is the knowledge and context I've distilled from conversations with {member.mention}.\n"
-            "*This data is used to provide self-aware and personalized responses.*"
-        ),
-        color=0x00FFB4
-    )
-    
-    if user_mem:
-        profile = user_mem.get("profile_summary", "Calculating...")
-        vibe = user_mem.get("vibe", "Neutral")
-        embed.add_field(name="✨ CORE VIBE", value=f"`{vibe.upper()}`", inline=True)
-        embed.add_field(name="📝 PROFILE", value=profile, inline=False)
-
-    if brain_items:
-        kb_text = ""
-        seen_content = set()
-        for item in brain_items:
-            content = item['content']
-            if content.lower() in seen_content: continue
-            seen_content.add(content.lower())
-            
-            icon = "🛠️" if item['type'] in ['tool', 'plugin'] else "💡" if item['type'] == 'idea' else "📌"
-            kb_text += f"{icon} **{item['type'].upper()}**: {item['content']}\n"
-        
-        if len(kb_text) > 1024:
-            kb_text = kb_text[:1020] + "..."
-            
-        embed.add_field(name="🧠 KNOWLEDGE REPOSITORY", value=kb_text, inline=False)
-    else:
-        embed.add_field(name="🧠 KNOWLEDGE REPOSITORY", value="*The brain is currently empty. Chat more to populate it.*", inline=False)
-
-    embed.set_footer(text="Updated via Anomaly Tier Intelligence")
-    if member.display_avatar:
-        embed.set_thumbnail(url=member.display_avatar.url)
-        
-    await ctx.send(embed=embed)
 
 @portfolio_group.command(name="remove")
 async def portfolio_remove(ctx):

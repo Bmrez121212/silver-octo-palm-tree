@@ -144,7 +144,6 @@ IDENTITY & TONE:
 
 CORE DIRECTIVES:
 1. **UNIVERSAL EXPERTISE**: Do NOT force any specific topic (like editing) unless asked. Answer with the same high-tier depth whether the user asks for a workout plan, a crypto analysis, or a code fix.
-2. **SECOND BRAIN & OMERTA**: You have access to a [PERSONAL KNOWLEDGE BASE] for the user. Use past facts (hobbies, preferences, car, etc.) to build a unique connection. **OMERTA (STRICT PRIVACY)**: If you are in a public server, you are FORBIDDEN from mentioning: Discord bot development, code fixes, server infrastructure, or technical tasks (e.g., 'error handling module'). These are classified secrets between you and the user. In public, act as a high-tier companion/partner. Technical syncs are ONLY for DMs.
 3. **WEB RESEARCH**: Use search data for real-time accuracy across any topic. Provide links and data points immediately.
 4. **ELITE CODING**: You are a master engineer. When asked for code, provide optimized, high-end solutions (Python, JS, C++, etc.).
 5. **REPO ARCHITECT**: If asked to 'build' or 'generate' a project, output a JSON block with filenames as keys and contents as values (wrapped in ```json ... ```).
@@ -234,20 +233,7 @@ Your task is to break down complex problems into strategic phases.
 # --- CORE AI FUNCTION ---
 async def get_gemini_response(prompt, user_id, username=None, image_bytes=None, is_tutorial=False, software=None, brief=False, model=None, mode=None, use_thought=False, guild_id=None):
     try:
-        # 1. Load User Memory and Personal Brain
-        user_memory = db_manager.get_user_memory(user_id)
-        brain_items = db_manager.get_brain(user_id, limit=8)
-        
         memory_context = ""
-        if user_memory:
-            profile_summary = user_memory.get("profile_summary", "")
-            vibe = user_memory.get("vibe", "neutral")
-            notes = user_memory.get("notes", "")
-            memory_context = f"\n\n[USER PROFILE: Vibe is '{vibe}'. Summary: {profile_summary}. Notes: {notes}]"
-            
-        if brain_items:
-            brain_text = "\n".join([f"- {i['type'].upper()}: {i['content']}" for i in brain_items])
-            memory_context += f"\n\n[PERSONAL KNOWLEDGE BASE (SECOND BRAIN):]\n{brain_text}"
         
         # 2. Check for Server Aesthetic Overlay & System Prompt
         overlay_context = ""
@@ -299,8 +285,7 @@ async def get_gemini_response(prompt, user_id, username=None, image_bytes=None, 
             "2. ANTI-HALLUCINATION: If an image was analyzed in the PREVIOUS message, but NO image is attached in THIS message, do NOT attempt to see pixels. Use your previous text description from history as your source of truth. NEVER describe a random image (like cityscapes or landmarks) if no image is present.\n"
             "3. ROBOT-TALK VOID: NEVER say 'According to my search' or 'As an AI'. Just state the facts directly.\n"
             "4. NO LAZINESS: Give full, precise answers. Talk like a real, competent human.\n"
-            "5. FINAL PING: End with a short, relevant 'What's next?' question.\n"
-            "6. PUBLIC PRIVACY (STRICT): You are currently in a PUBLIC SERVER. DO NOT reveal that you are being developed, mention specific code modules, or talk about the user's technical projects. Shield the user's private life and work. Use only safe, companion-style topics."
+            "5. FINAL PING: End with a short, relevant 'What's next?' question."
         )
         
         context_flag = "[CONTEXT: PRIVATE_DM]" if not guild_id else "[CONTEXT: PUBLIC_SERVER]"
@@ -366,7 +351,6 @@ async def get_gemini_response(prompt, user_id, username=None, image_bytes=None, 
                         result_text = g_res.json()["choices"][0]["message"]["content"]
                         db_manager.save_message(user_id, "user", user_question)
                         db_manager.save_message(user_id, "model", result_text)
-                        asyncio.create_task(reflect_on_user(user_id, username, user_question, result_text))
                         return result_text
                     elif g_res.status_code == 429:
                         logger.warning("⚠️ Groq Rate Limited. Falling back to Gemini.")
@@ -393,7 +377,6 @@ async def get_gemini_response(prompt, user_id, username=None, image_bytes=None, 
         db_manager.save_message(user_id, "user", user_question)
         db_manager.save_message(user_id, "model", result_text)
         
-        asyncio.create_task(reflect_on_user(user_id, username, user_question, result_text))
         return result_text
     except Exception as e:
         err_str = str(e).lower()
@@ -461,83 +444,6 @@ Keep the tone elite and confident. Don't mention it's an AI simulation; just del
     except Exception as e:
         logger.error(f"Council Error: {e}")
         return await get_gemini_response(prompt, user_id, username, guild_id=guild_id)
-
-async def reflect_on_user(user_id, username, latest_user_msg, latest_bot_res):
-    """
-    Anomaly Tier Reflection: The bot analyzes the last interaction and history 
-    to distill permanent knowledge and update the user's personality profile.
-    Runs after every message for maximum intelligence depth.
-    """
-    try:
-        # 1. Gather context
-        old_memory = db_manager.get_user_memory(user_id)
-        existing_brain = db_manager.get_brain(user_id, limit=50)
-        history = db_manager.get_history(user_id, limit=8)
-        
-        history_text = "\n".join([f"{'User' if m['role'] == 'user' else 'Prime'}: {m['parts'][0]['text']}" for m in history])
-        brain_summary = ", ".join([f"{b['type']}: {b['content']}" for b in existing_brain]) if existing_brain else "None"
-        
-        reflection_prompt = f"""
-        Analyze the relationship and technical profile of {username}.
-        
-        SESSION HISTORY:
-        {history_text}
-        
-        EXISTING KNOWLEDGE:
-        {brain_summary}
-        
-        TASK:
-        1. REFINED PROFILE: Update their 'Creative Summary' and 'Vibe'.
-        2. KNOWLEDGE DISTILLATION: Extract NEW specific facts, tools, or preferences.
-           - ONLY extract items NOT already in 'EXISTING KNOWLEDGE'.
-           - Focus on: Tools (AE/Premiere/Plugins), Project Ideas, Technical Habits, Personal Preferences.
-        
-        STRICT JSON FORMAT:
-        {{
-            "summary": "1-sentence current profile.",
-            "vibe": "One-word vibe (Technical, Creative, Chill, etc.)",
-            "notes": "Brief bullets on habits.",
-            "new_knowledge": [
-                {{"type": "tool/fact/idea/preference", "content": "Specific detail detected"}}
-            ]
-        }}
-        """
-
-        # Use gemini-1.5-flash-latest for reflection as requested
-        response = await safe_generate_content(
-            model=PRIMARY_MODEL, 
-            contents=reflection_prompt,
-            config=types.GenerateContentConfig(response_mime_type="application/json")
-        )
-
-        if response and response.text:
-            data = json.loads(response.text)
-            
-            # Update Personality
-            db_manager.update_user_memory(
-                user_id, 
-                username, 
-                profile_summary=data.get('summary'), 
-                vibe=data.get('vibe'),
-                notes=data.get('notes')
-            )
-            
-            # Save New Knowledge
-            for item in data.get('new_knowledge', []):
-                # Extra check to prevent spamming small/generic facts
-                content = item.get('content', '')
-                if content and len(content) > 3:
-                    db_manager.add_to_brain(
-                        user_id, 
-                        item.get('type', 'fact'), 
-                        content, 
-                        context_snippet=latest_user_msg[:100]
-                    )
-            
-            logger.info(f"🧠 BRAIN: Lightning reflection complete for {username}.")
-
-    except Exception as e:
-        logger.error(f"Reflection error for user {user_id}: {e}")
 
 # Tool functions (Actual implementations)
 async def generate_image(description):
