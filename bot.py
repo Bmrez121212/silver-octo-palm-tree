@@ -120,8 +120,10 @@ def rotate_gemini_key():
     return True
 
 
-# State tracking
-user_states = {}
+# Caching for performance
+_guild_settings_cache = {}
+_user_memory_cache = {}
+owner_id = None # Cached developer ID
 user_warnings = db_manager.get_warnings()
 yt_cooldowns = db_manager.get_yt_cooldowns()
 active_captchas = db_manager.get_active_captchas()
@@ -473,10 +475,14 @@ async def is_server_admin(user, guild):
     if not guild: return False
     
     # 1. Global Bot Owner
-    try:
-        app = await bot.application_info()
-        if user.id == app.owner.id: return True
-    except: pass
+    global owner_id
+    if not owner_id:
+        try:
+            app = await bot.application_info()
+            owner_id = app.owner.id
+        except: pass
+    
+    if user.id == owner_id: return True
     
     # 2. Guild Owner
     if guild.owner and user.id == guild.owner.id: return True
