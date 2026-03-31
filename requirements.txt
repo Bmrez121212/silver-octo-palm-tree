@@ -13,3 +13,5 @@ itsdangerous
 httpx
 psutil
 yt-dlp
+aiosqlite
+asyncpg
