@@ -142,6 +142,7 @@ CAPCUT_ROLE_ID = get_env_int("CAPCUT_ROLE_ID", 0)
 OTHER_EDIT_ROLE_ID = get_env_int("OTHER_EDIT_ROLE_ID", 0)
 YOUTUBER_ROLE_ID = get_env_int("YOUTUBER_ROLE_ID", 0)
 LEGENDARY_ROLE_ID = get_env_int("LEGENDARY_ROLE_ID", 0)
+APPEAL_CHANNEL_ID = get_env_int("APPEAL_CHANNEL_ID", 0)
 
 # --- DYNAMIC CONFIGURATION ACCESS ---
 # These functions now take a guild_id to support multi-tenancy
@@ -162,6 +163,9 @@ def get_log_chan(guild_id=0):
 
 def get_verification_chan(guild_id=0):
     return int(get_guild_conf(guild_id, "verification_channel", get_env_int("VERIFICATION_CHANNEL_ID", 0)))
+
+def get_chat_chan(guild_id=0):
+    return int(get_guild_conf(guild_id, "chat_channel", 0))
 
 # Role Mappings
 def get_verified_role(guild_id=0):
@@ -3598,6 +3602,7 @@ async def on_message(message):
     is_dm = isinstance(message.channel, discord.DMChannel)
     is_mentioned = bot.user.mentioned_in(message)
     is_bot_self = (message.author == bot.user)
+    is_chat_channel = (message.channel.id == get_chat_chan(message.guild.id)) if message.guild else False
     
     # Fast check for reply to bot (avoiding fetch_message where possible)
     is_reply_to_bot = False
@@ -3838,8 +3843,8 @@ async def on_message(message):
                 del user_states[user_id]
             return
     
-    # If the message is a reply, we already determined in Step 1 if it's to the bot
-    if message.reference and not is_reply_to_bot:
+    # If the message is a reply, ensure we only ignore it if it's NOT addressing the bot (and not in DMs)
+    if message.reference and not is_reply_to_bot and not is_mentioned and not is_dm:
         return
 
     # Check for profanity and moderate (delete + warn + mute 24h)
@@ -3884,8 +3889,8 @@ async def on_message(message):
     #     return
     
     
-    # Only respond if mentioned, in DM, or replying to bot
-    if not is_dm and not is_mentioned and not is_reply_to_bot:
+    # Only respond if mentioned, in DM, replying to bot, or in a designated chat channel
+    if not is_dm and not is_mentioned and not is_reply_to_bot and not is_chat_channel:
         return
 
     # If the message doesn't start with a command prefix, treat it as a chat message
@@ -4092,7 +4097,7 @@ async def on_message(message):
                     embed = discord.Embed(title=f"📊 Status Profile: {target_user.name}", color=0x00FFFF)
                     embed.set_thumbnail(url=target_user.display_avatar.url)
                     
-                    embed.description = f"Current Level: **{db_manager.get_user_level(target_user.id)}**"
+                    embed.description = f"Current Level: **{db_manager.get_user_level(message.guild.id if message.guild else 0, target_user.id)}**"
                     
                     # Account Age
                     created_at = target_user.created_at.strftime("%b %d, %Y")
@@ -4259,10 +4264,6 @@ async def on_message(message):
                         logger.error(f"YT Stats Error: {str(e)}")
         
         # NOW handle other messages
-        is_dm = isinstance(message.channel, discord.DMChannel)
-        is_dm_message = is_dm
-        is_mentioned = bot.user.mentioned_in(message)
-        
         # *** TUTORIALS & HELP - PRIORITY #4 ***
         help_words = ['help', 'tutorial', 'how to', 'teach', 'guide', 'learn', 'explain', 'show me', 'assist', 'how do i', 'how can i', 'how do you', 'create', 'make', 'how do', 'show me']
         is_help = any(re.search(r'\b' + re.escape(word) + r'\b', prompt_lower) for word in help_words)
@@ -7869,6 +7870,14 @@ async def setup_verification_cmd(ctx):
     view = VerificationSetupView(guild_id, ctx.author.id)
     embed = view.create_embed()
     await ctx.send(embed=embed, view=view)
+
+@bot.command(name="set_chat_channel")
+@commands.has_permissions(administrator=True)
+async def set_chat_channel_cmd(ctx, channel: discord.TextChannel = None):
+    """Set the channel where AI will proactively respond to all messages."""
+    channel = channel or ctx.channel
+    db_manager.save_guild_setting(ctx.guild.id, "chat_channel", channel.id)
+    await ctx.reply(f"?? **Prime AI**: I will now proactively respond to all messages in {channel.mention}.\n*Note: Use mentions elsewhere or repeat this command in another channel to switch.*")
 
 def run_bot():
     """Function to start the bot with the token from environment variables."""

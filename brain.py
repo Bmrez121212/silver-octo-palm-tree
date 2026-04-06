@@ -305,10 +305,10 @@ async def get_gemini_response(prompt, user_id, username=None, image_bytes=None, 
         
         context_flag = "[CONTEXT: PRIVATE_DM]" if not guild_id else "[CONTEXT: PUBLIC_SERVER]"
         # If in public, add a localized warning to the system prompt
+        modified_system_prompt = f"{system_prompt}{memory_context}{overlay_context}{search_context}{global_instruction}"
         if guild_id:
             modified_system_prompt += "\n[ALERT: YOU ARE IN PUBLIC. PROJECT SECRETS ARE LOCKED.]"
         
-        modified_system_prompt = f"{system_prompt}{memory_context}{overlay_context}{search_context}{global_instruction}"
         user_context = f"\n\n{context_flag}\n[Message from: {username}]" if username else f"\n\n{context_flag}"
 
         if use_thought:
@@ -376,15 +376,37 @@ async def get_gemini_response(prompt, user_id, username=None, image_bytes=None, 
 
             logger.warning("⚠️ Groq unavailable or limited, falling back to Gemini.")
 
-        # --- GEMINI FALLBACK/DEFAULT ---
-        contents = [types.Part.from_text(text=modified_system_prompt + user_context)]
+        # Building structured contents for Gemini v1beta
+        contents = []
         for msg in history:
             role = "user" if msg['role'] == 'user' else "model"
-            contents.append(types.Content(role=role, parts=[types.Part.from_text(text=msg['parts'][0]['text'])]))
+            if not contents or contents[-1].role != role:
+                contents.append(types.Content(role=role, parts=[types.Part.from_text(text=msg['parts'][0]['text'])]))
+            else:
+                # Merge consecutive roles if they exist
+                contents[-1].parts[0].text += f"\n\n{msg['parts'][0]['text']}"
         
-        contents.append(types.Content(role="user", parts=[types.Part.from_text(text=user_question)]))
+        # Append the final user question
+        if not contents or contents[-1].role != "user":
+            contents.append(types.Content(role="user", parts=[types.Part.from_text(text=user_question)]))
+        else:
+            # Merge with last user message
+            contents[-1].parts[0].text += f"\n\n{user_question}"
+            
+        # Add user context to the final message
+        if len(contents) > 0 and user_context:
+            contents[-1].parts[0].text = f"{user_context}\n\n{contents[-1].parts[0].text}"
+
+        config = types.GenerateContentConfig(
+            temperature=1.0, 
+            system_instruction=modified_system_prompt
+        )
         
-        response = await safe_generate_content(model=model if model else PRIMARY_MODEL, contents=contents)
+        response = await safe_generate_content(
+            model=model if model else PRIMARY_MODEL, 
+            contents=contents, 
+            config=config
+        )
         if not response or not response.text:
             return "I'm having trouble thinking right now."
         
