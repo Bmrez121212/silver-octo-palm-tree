@@ -3880,6 +3880,9 @@ async def on_message(message):
     #     if await handle_automatic_resources(message):
     #         return
         
+    # Get clean prompt (remove mention if exists)
+    prompt = message.content.replace(f'<@{bot.user.id}>', '').strip() if message.content else ''
+    
     # Trigger AI role suggestions if they mention software they don't have a role for
     # if await handle_automatic_role_suggestion(message):
     #     pass # Don't return, allow other things to happen
@@ -3890,6 +3893,11 @@ async def on_message(message):
     
     
     # Only respond if mentioned, in DM, replying to bot, or in a designated chat channel
+    # Special: For DMs, if content is EMPTY, it usually means the Message Content Intent is OFF in the portal.
+    if is_dm and not prompt and not image_bytes and not video_bytes:
+        await message.reply("👀 **Prime AI**: I am connected, but I am hearing silence. If you are typing, this usually means the **Message Content Intent** is disabled in my Discord Developer Portal. Tell the admin to enable it!")
+        return
+
     if not is_dm and not is_mentioned and not is_reply_to_bot and not is_chat_channel:
         return
 
@@ -3976,7 +3984,6 @@ async def on_message(message):
 
         # *** IMAGE GENERATION - PRIORITY #1 ***
         if ('generat' in prompt_lower or 'creat' in prompt_lower or 'draw' in prompt_lower or 'make' in prompt_lower) and ('img' in prompt_lower or 'image' in prompt_lower or 'picture' in prompt_lower or 'photo' in prompt_lower or 'art' in prompt_lower):
-            prompt = message.content.replace(f'<@{bot.user.id}>', '').strip()
             await message.channel.send("🎨 Generating image...")
             try:
                 image_path = await generate_image(prompt)
@@ -4337,9 +4344,6 @@ async def on_message(message):
         search_query = None # Reset search query for standard processing
         
         try:
-            # Get clean prompt (remove mention if exists)
-            prompt = message.content.replace(f'<@{bot.user.id}>', '').strip()
-            
             # Check for attachments (images or videos)
             image_bytes = None
             video_bytes = None
@@ -5062,6 +5066,7 @@ async def hi_command(ctx):
     Usage: !hi
     """
     logger.info(f'User {ctx.author.name} (ID: {ctx.author.id}) invoked !hi command in {ctx.guild.name if ctx.guild else "DM"}')
+    await ctx.reply("👋 **Prime AI is Online!** I am hearing you loud and clear. If the AI doesn't respond to your regular messages, check if I have the correct API keys or permissions!")
 
     try:
         # Send DM to the user
